@@ -75,15 +75,15 @@ function parseCSV(csvText) {
 
     return {
       id: Number(row.id),
-      name: row.nombre,
-      category: row.categoria,
-      price: Number(row.precio),
-      image: row.imagen,
-      description: row.descripcion,
+      name: row.nombre || '',
+      category: row.categoria || '',
+      price: Number(row.precio || 0),
+      image: row.imagen || '',
+      description: row.descripcion || '',
       stockInitial: Number(row.stock_inicial || 0),
       sold: Number(row.vendido || 0),
       stock: Number(row.stock_actual || 0),
-      status: row.estado,
+      status: row.estado || '',
     }
   })
 }
@@ -93,6 +93,8 @@ export default function App() {
   const [loadingProducts, setLoadingProducts] = useState(true)
   const [productsError, setProductsError] = useState('')
   const [cart, setCart] = useState([])
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('Todas')
 
   const phoneNumber = '584247534282'
 
@@ -121,6 +123,26 @@ export default function App() {
 
     loadProducts()
   }, [])
+
+  const availableCategories = useMemo(() => {
+    const uniqueCategories = [
+      ...new Set(products.map((product) => product.category).filter(Boolean)),
+    ]
+    return ['Todas', ...uniqueCategories]
+  }, [products])
+
+  const filteredProducts = useMemo(() => {
+    return products.filter((product) => {
+      const matchesCategory =
+        selectedCategory === 'Todas' || product.category === selectedCategory
+
+      const matchesSearch =
+        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.description.toLowerCase().includes(searchTerm.toLowerCase())
+
+      return matchesCategory && matchesSearch
+    })
+  }, [products, selectedCategory, searchTerm])
 
   const addToCart = (product) => {
     if (product.stock <= 0 || product.status === 'Producto no disponible') {
@@ -320,6 +342,28 @@ export default function App() {
             <h2>Catálogo conectado a Google Sheets</h2>
           </div>
 
+          <div className="catalog-tools">
+            <input
+              type="text"
+              placeholder="Buscar producto..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="catalog-search"
+            />
+
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="catalog-select"
+            >
+              {availableCategories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {loadingProducts && (
             <p className="cart-empty">Cargando productos...</p>
           )}
@@ -328,10 +372,14 @@ export default function App() {
             <p className="cart-empty">{productsError}</p>
           )}
 
-          {!loadingProducts && !productsError && (
+          {!loadingProducts && !productsError && filteredProducts.length === 0 && (
+            <p className="cart-empty">No se encontraron productos con ese filtro.</p>
+          )}
+
+          {!loadingProducts && !productsError && filteredProducts.length > 0 && (
             <div className="products-layout">
               <div className="products-grid">
-                {products.map((product) => {
+                {filteredProducts.map((product) => {
                   const unavailable =
                     product.stock <= 0 ||
                     product.status === 'Producto no disponible'
