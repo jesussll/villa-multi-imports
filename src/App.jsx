@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 const categories = [
@@ -20,55 +20,119 @@ const categories = [
   },
 ]
 
-const products = [
-  {
-    id: 1,
-    name: 'Set de hogar premium',
-    category: 'Hogar',
-    price: 18,
-    image:
-      'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=900&q=80',
-  },
-  {
-    id: 2,
-    name: 'Kit beauty essentials',
-    category: 'Belleza',
-    price: 22,
-    image:
-      'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=900&q=80',
-  },
-  {
-    id: 3,
-    name: 'Auriculares inalámbricos',
-    category: 'Tecnología',
-    price: 35,
-    image:
-      'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=900&q=80',
-  },
-  {
-    id: 4,
-    name: 'Box regalo especial',
-    category: 'Regalos',
-    price: 27,
-    image:
-      'https://images.unsplash.com/photo-1513475382585-d06e58bcb0e0?auto=format&fit=crop&w=900&q=80',
-  },
-]
+const CSV_URL =
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vT-dnax_ak9agd2A0B8AjnNbMaavX5_ulPdptAnAIolNXUjgWcY6LlkXFHVQRX7yj8gmeEgzrpQLKcP/pub?gid=1238923771&single=true&output=csv'
 
 function formatPrice(value) {
   return `$${value}`
 }
 
+function parseCSVLine(line) {
+  const result = []
+  let current = ''
+  let insideQuotes = false
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i]
+    const nextChar = line[i + 1]
+
+    if (char === '"') {
+      if (insideQuotes && nextChar === '"') {
+        current += '"'
+        i++
+      } else {
+        insideQuotes = !insideQuotes
+      }
+    } else if (char === ',' && !insideQuotes) {
+      result.push(current)
+      current = ''
+    } else {
+      current += char
+    }
+  }
+
+  result.push(current)
+  return result
+}
+
+function parseCSV(csvText) {
+  const lines = csvText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  if (lines.length < 2) return []
+
+  const headers = parseCSVLine(lines[0]).map((h) => h.trim())
+
+  return lines.slice(1).map((line) => {
+    const values = parseCSVLine(line)
+    const row = {}
+
+    headers.forEach((header, index) => {
+      row[header] = values[index] ? values[index].trim() : ''
+    })
+
+    return {
+      id: Number(row.id),
+      name: row.nombre,
+      category: row.categoria,
+      price: Number(row.precio),
+      image: row.imagen,
+      description: row.descripcion,
+      stockInitial: Number(row.stock_inicial || 0),
+      sold: Number(row.vendido || 0),
+      stock: Number(row.stock_actual || 0),
+      status: row.estado,
+    }
+  })
+}
+
 export default function App() {
+  const [products, setProducts] = useState([])
+  const [loadingProducts, setLoadingProducts] = useState(true)
+  const [productsError, setProductsError] = useState('')
   const [cart, setCart] = useState([])
 
   const phoneNumber = '584247534282'
 
+  useEffect(() => {
+    async function loadProducts() {
+      try {
+        setLoadingProducts(true)
+        setProductsError('')
+
+        const response = await fetch(CSV_URL)
+        const csvText = await response.text()
+        const parsedProducts = parseCSV(csvText)
+
+        const cleanedProducts = parsedProducts.filter(
+          (product) => product.id && product.name
+        )
+
+        setProducts(cleanedProducts)
+      } catch (error) {
+        console.error(error)
+        setProductsError('No se pudieron cargar los productos.')
+      } finally {
+        setLoadingProducts(false)
+      }
+    }
+
+    loadProducts()
+  }, [])
+
   const addToCart = (product) => {
+    if (product.stock <= 0 || product.status === 'Producto no disponible') {
+      return
+    }
+
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id)
 
       if (existing) {
+        if (existing.quantity >= product.stock) return prev
+
         return prev.map((item) =>
           item.id === product.id
             ? { ...item, quantity: item.quantity + 1 }
@@ -82,9 +146,16 @@ export default function App() {
 
   const increaseQty = (id) => {
     setCart((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, quantity: item.quantity + 1 } : item
-      )
+      prev.map((item) => {
+        const originalProduct = products.find((p) => p.id === id)
+        if (!originalProduct) return item
+
+        if (item.quantity >= originalProduct.stock) return item
+
+        return item.id === id
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
+      })
     )
   }
 
@@ -142,7 +213,11 @@ export default function App() {
       <header className="topbar">
         <div className="container topbar-inner">
           <div className="brand">
-            <img src="/logo-villa.jpg" alt="Villa Multi-Imports" className="brand-logo" />
+            <img
+              src="/logo-villa.jpg"
+              alt="Villa Multi-Imports"
+              className="brand-logo"
+            />
             <div>
               <p className="brand-kicker">Villa Multi-Imports</p>
               <h1 className="brand-title">Variedad sin límites</h1>
@@ -242,84 +317,122 @@ export default function App() {
         <div className="container">
           <div className="section-head">
             <p className="section-kicker">Productos</p>
-            <h2>Algunos productos destacados</h2>
+            <h2>Catálogo conectado a Google Sheets</h2>
           </div>
 
-          <div className="products-layout">
-            <div className="products-grid">
-              {products.map((product) => (
-                <article key={product.id} className="product-card">
-                  <img src={product.image} alt={product.name} className="product-image" />
-                  <div className="product-body">
-                    <span className="product-category">{product.category}</span>
-                    <h3>{product.name}</h3>
-                    <p className="product-price">{formatPrice(product.price)}</p>
-                    <button
-                      className="btn btn-primary full"
-                      onClick={() => addToCart(product)}
-                    >
-                      Agregar al carrito
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
+          {loadingProducts && (
+            <p className="cart-empty">Cargando productos...</p>
+          )}
 
-            <aside className="cart">
-              <div className="cart-head">
-                <h3>Carrito</h3>
-                <span>{totalItems} item(s)</span>
-              </div>
+          {productsError && (
+            <p className="cart-empty">{productsError}</p>
+          )}
 
-              {cart.length === 0 ? (
-                <p className="cart-empty">Todavía no agregaste productos.</p>
-              ) : (
-                <div className="cart-list">
-                  {cart.map((item) => (
-                    <div key={item.id} className="cart-item">
-                      <div className="cart-item-info">
-                        <h4>{item.name}</h4>
-                        <p>{formatPrice(item.price)} c/u</p>
-                      </div>
+          {!loadingProducts && !productsError && (
+            <div className="products-layout">
+              <div className="products-grid">
+                {products.map((product) => {
+                  const unavailable =
+                    product.stock <= 0 ||
+                    product.status === 'Producto no disponible'
 
-                      <div className="cart-actions">
-                        <div className="qty-box">
-                          <button onClick={() => decreaseQty(item.id)}>-</button>
-                          <span>{item.quantity}</span>
-                          <button onClick={() => increaseQty(item.id)}>+</button>
-                        </div>
+                  return (
+                    <article key={product.id} className="product-card">
+                      <img
+                        src={product.image}
+                        alt={product.name}
+                        className="product-image"
+                      />
+
+                      <div className="product-body">
+                        <span className="product-category">{product.category}</span>
+                        <h3>{product.name}</h3>
+                        <p>{product.description}</p>
+                        <p className="product-price">{formatPrice(product.price)}</p>
+
+                        <p
+                          className={
+                            unavailable ? 'stock-label no-stock' : 'stock-label'
+                          }
+                        >
+                          {unavailable
+                            ? 'Producto no disponible'
+                            : `Stock disponible: ${product.stock}`}
+                        </p>
 
                         <button
-                          className="remove-btn"
-                          onClick={() => removeItem(item.id)}
+                          className={`btn full ${
+                            unavailable ? 'btn-disabled' : 'btn-primary'
+                          }`}
+                          onClick={() => addToCart(product)}
+                          disabled={unavailable}
                         >
-                          Quitar
+                          {unavailable ? 'No disponible' : 'Agregar al carrito'}
                         </button>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="cart-footer">
-                <p className="cart-total">
-                  <strong>Total:</strong> {formatPrice(totalPrice)}
-                </p>
-
-                <a
-                  className={`btn btn-primary full ${cart.length === 0 ? 'disabled' : ''}`}
-                  href={whatsappCartLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => {
-                    if (cart.length === 0) e.preventDefault()
-                  }}
-                >
-                  Finalizar pedido por WhatsApp
-                </a>
+                    </article>
+                  )
+                })}
               </div>
-            </aside>
-          </div>
+
+              <aside className="cart">
+                <div className="cart-head">
+                  <h3>Carrito</h3>
+                  <span>{totalItems} item(s)</span>
+                </div>
+
+                {cart.length === 0 ? (
+                  <p className="cart-empty">Todavía no agregaste productos.</p>
+                ) : (
+                  <div className="cart-list">
+                    {cart.map((item) => (
+                      <div key={item.id} className="cart-item">
+                        <div className="cart-item-info">
+                          <h4>{item.name}</h4>
+                          <p>{formatPrice(item.price)} c/u</p>
+                        </div>
+
+                        <div className="cart-actions">
+                          <div className="qty-box">
+                            <button onClick={() => decreaseQty(item.id)}>-</button>
+                            <span>{item.quantity}</span>
+                            <button onClick={() => increaseQty(item.id)}>+</button>
+                          </div>
+
+                          <button
+                            className="remove-btn"
+                            onClick={() => removeItem(item.id)}
+                          >
+                            Quitar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="cart-footer">
+                  <p className="cart-total">
+                    <strong>Total:</strong> {formatPrice(totalPrice)}
+                  </p>
+
+                  <a
+                    className={`btn btn-primary full ${
+                      cart.length === 0 ? 'disabled' : ''
+                    }`}
+                    href={whatsappCartLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => {
+                      if (cart.length === 0) e.preventDefault()
+                    }}
+                  >
+                    Finalizar pedido por WhatsApp
+                  </a>
+                </div>
+              </aside>
+            </div>
+          )}
         </div>
       </section>
 
@@ -388,8 +501,7 @@ export default function App() {
 
       <footer className="footer">
         <div className="container">
-          © {new Date().getFullYear()} Villa Multi-Imports · Diseñado para mostrar
-          productos, atención directa y encargos especiales.
+          © {new Date().getFullYear()} Villa Multi-Imports · Catálogo conectado a Google Sheets.
         </div>
       </footer>
     </div>

@@ -540,4 +540,19 @@
   .nav a {
     font-size: 14px;
   }
+}.stock-label {
+  margin: 0 0 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #8df0a9;
+}
+
+.no-stock {
+  color: #ff8e8e;
+}
+
+.btn-disabled {
+  background: #666;
+  color: #ddd;
+  cursor: not-allowed;
 }
